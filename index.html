@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <title>PDF 转 Markdown 在线解析</title>
+
+    <meta name="description" content="上传 PDF，调用后端异步接口自动解析成 Markdown，并支持在线预览、下载 Markdown 文件与全屏阅读。">
+    <meta name="keywords" content="PDF 转 Markdown,文档解析,在线预览,异步任务">
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <style>
+        :root {
+            --bg: #020617;
+            --bg-card: #020617;
+            --bg-soft: #0b1120;
+            --accent: #38bdf8;
+            --border: #1f2937;
+            --text: #e5e7eb;
+            --muted: #9ca3af;
+            --danger: #f97373;
+            --success: #4ade80;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: radial-gradient(circle at top, #111827 0, #020617 55%, #000 100%);
+            color: var(--text);
+            display: flex;
+            justify-content: center;
+        }
+        .page {
+            max-width: 1100px;
+            width: 100%;
+            padding: 24px 16px 32px;
+        }
+        header {
+            margin-bottom: 16px;
+        }
+        header h1 {
+            margin: 0 0 4px;
+            font-size: 1.8rem;
+        }
+        header p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+        main {
+            display: grid;
+            grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.3fr);
+            gap: 20px;
+        }
+        @media (max-width: 880px) {
+            main { grid-template-columns: minmax(0, 1fr); }
+        }
+        .card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            padding: 16px 18px;
+            box-shadow: 0 16px 40px rgba(15, 23, 42, 0.8);
+        }
+        .card-title {
+            margin: 0 0 10px;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: .16em;
+            color: var(--muted);
+        }
+
+        /* 上传 */
+        .dropzone {
+            border-radius: 12px;
+            border: 1px dashed #4b5563;
+            background: #020617;
+            padding: 14px 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color .15s ease, background .15s ease;
+            font-size: 0.9rem;
+        }
+        .dropzone:hover {
+            border-color: var(--accent);
+            background: #020617;
+        }
+        .dropzone.dragover {
+            border-style: solid;
+            border-color: var(--accent);
+            background: #0b1120;
+        }
+        .dropzone p {
+            margin: 2px 0;
+        }
+        .dropzone small {
+            color: var(--muted);
+            font-size: 0.78rem;
+        }
+        .file-input { display: none; }
+
+        .btn-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .btn {
+            border-radius: 999px;
+            padding: 7px 14px;
+            font-size: 0.86rem;
+            border: none;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: transform .12s ease, box-shadow .12s ease, filter .12s ease, background .12s ease;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+            color: #02121f;
+            box-shadow: 0 10px 24px rgba(56, 189, 248, 0.4);
+        }
+        .btn-secondary {
+            background: transparent;
+            color: var(--text);
+            border: 1px solid #4b5563;
+        }
+        .btn-ghost {
+            background: transparent;
+            color: var(--muted);
+            border: 1px solid transparent;
+        }
+        .btn:hover:not(:disabled) {
+            transform: translateY(-1px);
+            filter: brightness(1.03);
+        }
+        .btn:active:not(:disabled) {
+            transform: translateY(0);
+            box-shadow: none;
+        }
+        .btn:disabled {
+            opacity: .5;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .meta {
+            margin-top: 8px;
+            font-size: 0.8rem;
+            color: var(--muted);
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .status {
+            margin-top: 10px;
+            font-size: 0.8rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+        }
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 8px;
+            border-radius: 999px;
+            border: 1px solid #4b5563;
+            background: #020617;
+        }
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+        }
+        .dot-idle { background: #6b7280; }
+        .dot-loading {
+            border: 2px solid rgba(56, 189, 248, 0.6);
+            border-top-color: transparent;
+            border-radius: 999px;
+            width: 10px;
+            height: 10px;
+            animation: spin .8s linear infinite;
+        }
+        .dot-ok {
+            background: var(--success);
+            box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.12);
+        }
+        .dot-error {
+            background: var(--danger);
+            box-shadow: 0 0 0 4px rgba(248, 113, 113, 0.12);
+        }
+        .status-message {
+            color: var(--muted);
+        }
+        .status-message.error { color: var(--danger); }
+        .status-message.ok { color: var(--success); }
+        .timer {
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* 预览 */
+        .preview-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 6px;
+            margin-bottom: 8px;
+            font-size: 0.84rem;
+            color: var(--muted);
+        }
+        .preview-header span.truncate {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .preview-toolbar {
+            display: flex;
+            gap: 6px;
+        }
+        .preview-box {
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            background: var(--bg-soft);
+            height: 380px;
+            padding: 10px 12px;
+            overflow-y: auto;
+            font-size: 0.86rem;
+            line-height: 1.5;
+        }
+        .preview-box.empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--muted);
+            font-size: 0.82rem;
+        }
+
+        /* markdown */
+        .markdown-body {
+            color: var(--text);
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        .markdown-body h1,
+        .markdown-body h2,
+        .markdown-body h3,
+        .markdown-body h4 {
+            margin: 0.6em 0 0.4em;
+            font-weight: 600;
+        }
+        .markdown-body p { margin: 0.4em 0; }
+        .markdown-body a {
+            color: var(--accent);
+            text-decoration: underline;
+            text-decoration-thickness: 1px;
+        }
+        .markdown-body code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
+            font-size: 0.82em;
+            background: #020617;
+            padding: 2px 4px;
+            border-radius: 4px;
+            border: 1px solid #1f2937;
+        }
+        .markdown-body pre {
+            background: #020617;
+            padding: 8px 10px;
+            border-radius: 8px;
+            overflow-x: auto;
+            border: 1px solid #1f2937;
+        }
+        .markdown-body pre code {
+            border: none;
+            padding: 0;
+            background: none;
+        }
+        .markdown-body ul,
+        .markdown-body ol {
+            margin: 0.4em 0;
+            padding-left: 1.2em;
+        }
+        .markdown-body blockquote {
+            border-left: 3px solid #4b5563;
+            padding-left: 10px;
+            margin: 0.4em 0;
+            color: var(--muted);
+        }
+
+        footer {
+            margin-top: 16px;
+            font-size: 0.78rem;
+            color: var(--muted);
+            text-align: center;
+        }
+
+        /* 全屏 overlay */
+        .fullscreen-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.9);
+            display: none;
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+        .fullscreen-overlay.active {
+            display: flex;
+        }
+        .fullscreen-inner {
+            width: 100%;
+            max-width: 1100px;
+            height: 100%;
+            max-height: 650px;
+            background: var(--bg-card);
+            border-radius: 14px;
+            border: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            padding: 12px 14px;
+        }
+        .fullscreen-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 0.86rem;
+            color: var(--muted);
+        }
+        .fullscreen-bar h3 {
+            margin: 0;
+            font-size: 0.92rem;
+            color: var(--text);
+        }
+        .fullscreen-content {
+            flex: 1;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--bg-soft);
+            padding: 10px 12px;
+            overflow-y: auto;
+            font-size: 0.88rem;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer></script>
+</head>
+<body>
+<div class="page">
+    <header>
+        <h1>PDF 转 Markdown</h1>
+        <p>上传 PDF，后端异步解析为 Markdown，支持在线预览、下载与全屏阅读。</p>
+    </header>
+
+    <main>
+        <!-- 左：上传 + 状态 -->
+        <section class="card" aria-label="上传与解析">
+            <h2 class="card-title">Step 1 · 上传 PDF</h2>
+
+            <div id="dropzone" class="dropzone">
+                <p>点击选择 PDF 文件，或拖拽到此处</p>
+                <small>仅支持单文件上传，类型为 application/pdf</small>
+                <input id="fileInput" class="file-input" type="file" accept="application/pdf" />
+            </div>
+
+            <div class="btn-row">
+                <button id="parseBtn" class="btn btn-primary" disabled>开始解析</button>
+                <button id="cancelBtn" class="btn btn-secondary" disabled>取消轮询</button>
+            </div>
+
+            <div class="meta">
+                <span id="fileInfo">未选择文件</span>
+                <span>轮询上限：10 分钟</span>
+            </div>
+
+            <div class="status" aria-live="polite" aria-atomic="true">
+                <div class="status-pill">
+                    <span id="statusDot" class="dot dot-idle"></span>
+                    <span id="statusLabel">就绪</span>
+                </div>
+                <span id="statusMessage" class="status-message">
+            选择一个 PDF 文件，然后点击“开始解析”。
+          </span>
+            </div>
+        </section>
+
+        <!-- 右：预览 -->
+        <section class="card" aria-label="Markdown 预览">
+            <h2 class="card-title">Step 2 · 预览与导出</h2>
+            <div class="preview-header">
+                <span id="previewTitle" class="truncate">尚未生成内容</span>
+                <div class="preview-toolbar">
+                    <span id="timer" class="timer">00:00</span>
+                    <button id="downloadBtn" class="btn btn-ghost" disabled>下载 Markdown</button>
+                    <button id="fullscreenBtn" class="btn btn-ghost" disabled>全屏预览</button>
+                </div>
+            </div>
+            <div id="previewBox" class="preview-box empty">
+                暂无内容，请先上传并解析 PDF 文档。
+            </div>
+        </section>
+    </main>
+
+    <footer>示例前端页面，可直接接入你的文档解析后端。</footer>
+</div>
+
+<!-- 全屏 overlay -->
+<div id="fullscreenOverlay" class="fullscreen-overlay">
+    <div class="fullscreen-inner">
+        <div class="fullscreen-bar">
+            <h3>Markdown 全屏预览</h3>
+            <button id="closeFullscreenBtn" class="btn btn-secondary">退出全屏</button>
+        </div>
+        <div id="fullscreenContent" class="fullscreen-content"></div>
+    </div>
+</div>
+
+<script>
+    //const API_BASE = "http://127.0.0.1";
+    const API_BASE = "https://app-api.myget.ai";
+    const PARSE_ENDPOINT = API_BASE + "/api/v1/async/documents/parse";
+    const TASK_ENDPOINT = API_BASE + "/api/v1/task";
+
+    const dropzone = document.getElementById("dropzone");
+    const fileInput = document.getElementById("fileInput");
+    const parseBtn = document.getElementById("parseBtn");
+    const cancelBtn = document.getElementById("cancelBtn");
+    const fileInfo = document.getElementById("fileInfo");
+    const statusDot = document.getElementById("statusDot");
+    const statusLabel = document.getElementById("statusLabel");
+    const statusMessage = document.getElementById("statusMessage");
+    const timerEl = document.getElementById("timer");
+    const previewBox = document.getElementById("previewBox");
+    const previewTitle = document.getElementById("previewTitle");
+    const downloadBtn = document.getElementById("downloadBtn");
+    const fullscreenBtn = document.getElementById("fullscreenBtn");
+
+    const fullscreenOverlay = document.getElementById("fullscreenOverlay");
+    const fullscreenContent = document.getElementById("fullscreenContent");
+    const closeFullscreenBtn = document.getElementById("closeFullscreenBtn");
+
+    let selectedFile = null;
+    let pollingAbort = null;
+    const MAX_DURATION_MS = 10 * 60 * 1000;
+    let timerStart = null;
+    let timerId = null;
+    let lastMarkdown = "";
+
+    function formatBytes(bytes) {
+        if (!bytes && bytes !== 0) return "未知大小";
+        const units = ["B", "KB", "MB", "GB"];
+        const k = 1024;
+        const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
+        const size = (bytes / Math.pow(k, i)).toFixed(1);
+        return size + " " + units[i];
+    }
+
+    function startTimer() {
+        stopTimer();
+        timerStart = Date.now();
+        timerId = setInterval(() => {
+            const elapsed = Date.now() - timerStart;
+            const sec = Math.floor(elapsed / 1000);
+            const m = String(Math.floor(sec / 60)).padStart(2, "0");
+            const s = String(sec % 60).padStart(2, "0");
+            timerEl.textContent = m + ":" + s;
+        }, 1000);
+    }
+    function stopTimer() {
+        if (timerId) clearInterval(timerId);
+        timerId = null;
+        timerStart = null;
+        timerEl.textContent = "00:00";
+    }
+
+    function setStatusIdle(msg) {
+        statusDot.className = "dot dot-idle";
+        statusLabel.textContent = "就绪";
+        statusMessage.textContent = msg || "选择一个 PDF 文件，然后点击“开始解析”。";
+        statusMessage.className = "status-message";
+    }
+    function setStatusLoading(msg) {
+        statusDot.className = "dot dot-loading";
+        statusLabel.textContent = "解析中";
+        statusMessage.textContent = msg || "正在上传并等待解析结果。";
+        statusMessage.className = "status-message";
+    }
+    function setStatusOk(msg) {
+        statusDot.className = "dot dot-ok";
+        statusLabel.textContent = "完成";
+        statusMessage.textContent = msg || "解析完成。";
+        statusMessage.className = "status-message ok";
+    }
+    function setStatusError(msg) {
+        statusDot.className = "dot dot-error";
+        statusLabel.textContent = "错误";
+        statusMessage.textContent = msg || "请求失败，请稍后重试。";
+        statusMessage.className = "status-message error";
+    }
+
+    function setPreviewEmpty(text) {
+        previewBox.classList.add("empty");
+        previewBox.textContent = text || "暂无内容，请先上传并解析 PDF 文档。";
+        previewTitle.textContent = "尚未生成内容";
+        lastMarkdown = "";
+        downloadBtn.disabled = true;
+        fullscreenBtn.disabled = true;
+    }
+
+    function renderMarkdownInto(element, markdown) {
+        if (window.marked && typeof marked.parse === "function") {
+            const html = marked.parse(markdown || "");
+            element.innerHTML = '<article class="markdown-body">' + html + "</article>";
+        } else {
+            element.textContent = markdown || "";
+        }
+    }
+
+    function setPreviewMarkdown(markdown) {
+        previewBox.classList.remove("empty");
+        renderMarkdownInto(previewBox, markdown);
+        previewTitle.textContent = "解析结果 · Markdown";
+        lastMarkdown = markdown || "";
+        downloadBtn.disabled = !lastMarkdown;
+        fullscreenBtn.disabled = !lastMarkdown;
+    }
+
+    function enableControlsReady() {
+        parseBtn.disabled = !selectedFile;
+        cancelBtn.disabled = true;
+    }
+    function enableControlsBusy() {
+        parseBtn.disabled = true;
+        cancelBtn.disabled = false;
+    }
+
+    function handleFileSelected(file) {
+        if (!file) return;
+        if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+            setStatusError("仅支持 PDF 文件，请重新选择。");
+            selectedFile = null;
+            fileInfo.textContent = "未选择文件";
+            parseBtn.disabled = true;
+            return;
+        }
+        selectedFile = file;
+        fileInfo.textContent = "已选择：" + file.name + " · " + formatBytes(file.size);
+        setStatusIdle("文件已就绪，点击“开始解析”提交任务。");
+        enableControlsReady();
+    }
+
+    // 拖拽
+    ["dragenter", "dragover"].forEach(evt =>
+        dropzone.addEventListener(evt, e => {
+            e.preventDefault(); e.stopPropagation();
+            dropzone.classList.add("dragover");
+        })
+    );
+    ["dragleave", "drop"].forEach(evt =>
+        dropzone.addEventListener(evt, e => {
+            e.preventDefault(); e.stopPropagation();
+            dropzone.classList.remove("dragover");
+        })
+    );
+    dropzone.addEventListener("drop", e => {
+        const file = e.dataTransfer && e.dataTransfer.files[0];
+        handleFileSelected(file);
+    });
+    dropzone.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", e => {
+        const file = e.target.files && e.target.files[0];
+        handleFileSelected(file);
+    });
+
+    // 上传并创建任务
+    parseBtn.addEventListener("click", async () => {
+        if (!selectedFile) {
+            setStatusError("请先选择一个 PDF 文件。");
+            return;
+        }
+        if (pollingAbort) {
+            setStatusError("已有任务进行中，请先取消或等待结束。");
+            return;
+        }
+        try {
+            enableControlsBusy();
+            setStatusLoading("正在上传文件并创建任务。");
+            setPreviewEmpty("正在解析文档，请稍候。");
+            stopTimer();
+
+            const formData = new FormData();
+            formData.append("file", selectedFile);
+
+            const resp = await fetch(PARSE_ENDPOINT, { method: "POST", body: formData });
+            if (!resp.ok) throw new Error("HTTP " + resp.status);
+            const data = await resp.json();
+
+            if (!data || !data.ok || !data.data || !data.data.id) {
+                throw new Error("后端返回格式不符合预期。");
+            }
+            const taskId = data.data.id;
+            startTimer();
+            setStatusLoading("任务已创建，开始轮询结果。任务 ID：" + taskId);
+
+            pollingAbort = { aborted: false };
+            pollTask(taskId, pollingAbort).catch(err => console.error(err));
+        } catch (err) {
+            console.error(err);
+            setStatusError("创建任务失败：" + (err && err.message ? err.message : "未知错误"));
+            enableControlsReady();
+            stopTimer();
+        }
+    });
+
+    cancelBtn.addEventListener("click", () => {
+        if (pollingAbort) pollingAbort.aborted = true;
+        cancelBtn.disabled = true;
+        setStatusError("轮询已取消。");
+        stopTimer();
+    });
+
+    async function pollTask(taskId, abortHandle) {
+        const INTERVAL = 2000;
+        const startedAt = timerStart || Date.now();
+
+        while (true) {
+            if (abortHandle.aborted) break;
+            const elapsed = Date.now() - startedAt;
+            if (elapsed > MAX_DURATION_MS) {
+                setStatusError("轮询超时（超过 10 分钟），已停止查询。");
+                setPreviewEmpty("轮询超时，未获取到解析结果。");
+                break;
+            }
+
+            try {
+                const url = new URL(TASK_ENDPOINT);
+                url.searchParams.set("id", taskId);
+                const resp = await fetch(url.toString(), { method: "GET" });
+                if (!resp.ok) throw new Error("HTTP " + resp.status);
+                const json = await resp.json();
+                if (!json || !json.ok || !json.data) {
+                    throw new Error("后端返回格式不符合预期。");
+                }
+                const result = json.data.result;
+                if (result === null || typeof result === "undefined") {
+                    setStatusLoading("任务进行中，等待解析完成。");
+                    await new Promise(r => setTimeout(r, INTERVAL));
+                    continue;
+                } else {
+                    setStatusOk("解析完成，可预览或下载 Markdown。");
+                    setPreviewMarkdown(result);
+                    break;
+                }
+            } catch (err) {
+                console.error(err);
+                setStatusError(
+                    "轮询失败：" + (err && err.message ? err.message : "未知错误") + "，即将重试。"
+                );
+                await new Promise(r => setTimeout(r, INTERVAL));
+            }
+        }
+
+        pollingAbort = null;
+        enableControlsReady();
+        stopTimer();
+    }
+
+    // 下载 Markdown
+    downloadBtn.addEventListener("click", () => {
+        if (!lastMarkdown) return;
+        const blob = new Blob([lastMarkdown], { type: "text/markdown;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "document.md";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    });
+
+    // 全屏预览
+    fullscreenBtn.addEventListener("click", () => {
+        if (!lastMarkdown) return;
+        renderMarkdownInto(fullscreenContent, lastMarkdown);
+        fullscreenOverlay.classList.add("active");
+    });
+    closeFullscreenBtn.addEventListener("click", () => {
+        fullscreenOverlay.classList.remove("active");
+        fullscreenContent.innerHTML = "";
+    });
+    fullscreenOverlay.addEventListener("click", e => {
+        if (e.target === fullscreenOverlay) {
+            fullscreenOverlay.classList.remove("active");
+            fullscreenContent.innerHTML = "";
+        }
+    });
+
+    document.addEventListener("DOMContentLoaded", () => {
+        setStatusIdle();
+        setPreviewEmpty();
+    });
+</script>
+</body>
+</html>
